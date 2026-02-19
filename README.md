@@ -1,4 +1,8 @@
-# Forest Disturbance Analysis — FIA × Remote Sensing Study
+# Title: AI-Powered Multisensor Fusion for Forest Biomass Mapping: Photogrammetric Canopy Profiles Improve Estimates in Southeastern North Carolina
+
+Zenodo (10.5281/zenodo.18688899
+
+Forest Disturbance Analysis — FIA × Remote Sensing Study
 
 ## Purpose
 
