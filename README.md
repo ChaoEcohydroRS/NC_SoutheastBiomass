@@ -5,13 +5,7 @@ Forest Disturbance Analysis — FIA × Remote Sensing Study
 Zenodo (10.5281/zenodo.18688899)
 ## Purpose
 
-This directory contains the disturbance analysis scripts produced in response to a peer-reviewer concern about the temporal mismatch between FIA ground measurements (2015–2022) and Sentinel-2 imagery (2018–2019) used in the biomass modelling study.
-
-**Reviewer concern:** FIA ground measurements span 2015–2022, but all plots are paired with Sentinel-2 imagery from a fixed 2018–2019 acquisition window. For any plot not measured in 2018–2019, a forest disturbance occurring in the temporal gap between the FIA measurement date and the RS imagery date (or vice versa) causes the ground truth and the spectral predictor to capture different states of the same forest stand — degrading the AGB–spectral relationship in the training data. Plots measured in 2015–2017 are at risk from disturbances that occurred after measurement but before the imagery; plots measured in 2020–2022 are at risk from disturbances that occurred after the imagery but before measurement. Only plots measured in 2018–2019 are temporally aligned with the imagery and thus unaffected by this mechanism.
-
-**Response strategy:**
-1. **Spatial evidence** — Two Google Earth Engine scripts map forest disturbance across the study region using independent RS products (GFW Hansen and LandTrendr), and confirm that disturbance is minimal at the FIA plot locations during 2015–2022.
-2. **Tabular evidence** — One Python script uses the FIA tabular data directly (no confidential location data needed) to show plot-level biomass stability and low disturbance rates across all measurement years.
+This directory contains the disturbance analysis scripts and results for quantifying forest disturbance patterns across the study region (557,121 ha, eastern US) during 2015–2022. The analysis uses two independent remote sensing products — Global Forest Watch (GFW) Hansen and LandTrendr — to characterise disturbance extent, biomass-weighted impact, and temporal distribution relative to the Sentinel-2 imagery acquisition window (2018–2019).
 
 ---
 
@@ -51,92 +45,6 @@ var disturbance_threshold = -100;  // LandTrendr: NBR magnitude threshold
 - Disturbance extraction uses the **segment-based eMapR approach** (consecutive vertex pairs → sort by NBR magnitude) to avoid the `Array arguments must have same length` GEE error that occurs with direct vertex sorting.
 - `minObservationsNeeded = 6` is appropriate for the 16-year time series (2010–2025).
 - **`lt_end_year` extended from 2023 → 2025** (updated 2026-02-21) to resolve the LandTrendr right-edge bias identified in the first run. LandTrendr requires ≥2 post-disturbance observations to confirm a spectral breakpoint; with the 2023 end year, disturbances in 2021–2022 had only 1–2 trailing composites, causing systematic underdetection (LT/GFW detection ratio = 0.11–0.12 in those years). Extending to 2025 provides 3–4 post-event observations, making 2021–2022 detection fully reliable. The filter window (`filter_start`/`filter_end` = 2015–2022) is unchanged; the extra years are used only to stabilise segment fitting.
-
----
-
-### Python Script
-
-| File | Inputs | Outputs |
-|------|--------|---------|
-| `DisturbanceSummaryFIA.py` | `unc_chao_fia_data.xlsx` (same file used in modelling) | Summary table CSV/XLSX + figure JPG |
-
-#### What `DisturbanceSummaryFIA.py` does
-
-1. **Replicates the identical filtering pipeline** from `model_utils.load_and_preprocess_data()`:
-   - Keeps only MEASYEAR 2015–2022
-   - Requires complete plots (all 4 subplots present)
-   - Excludes zero-biomass plots
-   - So the analysed plot population is exactly the modelling dataset
-
-2. **Dynamically detects FIA disturbance/treatment columns** in both subplot sheets and the `fia_plot` sheet:
-   - Disturbance codes: `DSTRBCD1`, `DSTRBCD2`, `DSTRBCD3`
-   - Disturbance years: `DSTRBYR1`, `DSTRBYR2`, `DSTRBYR3`
-   - Treatment codes: `TRTCD1`, `TRTCD2`, `TRTCD3`
-   - Works correctly whether these columns are present or absent
-
-3. **Classifies plots by temporal relationship to RS imagery** (2018–2019):
-   - Pre-RS (2015–2017)
-   - Concurrent (2018–2019)
-   - Post-RS (2020–2022)
-
-4. **Outputs**:
-
-| Output file | Contents |
-|-------------|----------|
-| `fia_disturbance_summary_table.csv` | Per-year: N plots, mean/median/SD/min/max AGB, disturbance counts & % |
-| `fia_disturbance_summary_table.xlsx` | Same, multi-sheet: By_Year, Temporal_Groups, Disturbance_Codes, Treatment_Codes |
-| `fia_temporal_group_summary.csv` | Pre/Concurrent/Post-RS group statistics |
-| `fia_disturbance_summary.jpg` | 2–3 panel figure (see below) |
-
-#### Figure panels
-
-- **(A)** Box plot of total AGB (Mg/ha) by FIA measurement year — bars colour-coded by pre/concurrent/post-RS group. A stable AGB distribution across years is direct evidence that no large-scale disturbance affected the plot population.
-- **(B)** Bar chart of plot count per measurement year — shows the temporal distribution of FIA sampling effort.
-- **(C)** (Only rendered if disturbance code columns exist) Grouped bar chart of % plots with any disturbance, natural disturbance only, and harvest/treatment, per year.
-
-#### Running the script
-
-```bash
-# On the HPC cluster (same environment as the modelling scripts)
-cd /path/to/unc_chao_fia_data.xlsx/directory
-python DisturbanceSummaryFIA.py
-```
-
-Adjust `FILE_NAME`, `OUTPUT_DIR`, `RS_START`, `RS_END` at the top of the script if paths or imagery dates differ.
-
-Dependencies: `numpy`, `pandas`, `matplotlib`, `openpyxl`
-
----
-
-### `BiomassChangeFIA.py`
-
-| File | Inputs | Outputs |
-|------|--------|---------|
-| `BiomassChangeFIA.py` | `unc_chao_fia_data.xlsx` | `biomass_change_by_treatment.csv/xlsx`, `biomass_change_summary.jpg` |
-
-Addresses the specific concern that **cutting (TRTCD=10, ~24% of plots)** may bias AGB estimates. Two complementary analyses:
-
-**Approach A — Removed biomass** (all 305 plots)
-- FIA subplot data records harvested trees in `*_removed` columns
-- Computes `removed_AGB` and `removed fraction = removed / (live + removed)` per plot
-- Stratified by disturbance class: No disturbance | Cutting only | Natural dist. only | Both
-- A low removed fraction (e.g. <5%) means cutting was minor thinning, not stand-clearing
-
-**Approach B — Re-measurement ΔAGB** (paired plots with prior cycle in file)
-- Links each current plot to its prior measurement via `PREV_PLT_CN` in `fia_plot`
-- Computes `ΔAGB_live = current − prior` and annual change rate `ΔAGB / REMPER`
-- Stratified by the same disturbance classes
-
-**Treatment-year timing check**
-- Uses `TRTYR1–3` to determine how long before the RS imagery (2018–2019) each cutting event occurred
-- Categorises cuts as: After RS | ≤2 yrs before RS | 3–5 yrs | 6–10 yrs | >10 yrs
-- Old cuts allow forest recovery; only recent cuts (≤2 yr) are a genuine matching concern
-
-#### Figure panels
-- **(A)** Live AGB box plot by disturbance class
-- **(B)** Removed AGB fraction (%) by class — key metric for reviewer
-- **(C)** ΔAGB box plot (only if paired prior-cycle data found)
-- **(D)** Bar chart of cutting timing relative to RS imagery
 
 ---
 
@@ -289,7 +197,7 @@ The AGB density ratio (disturbed-stand mean / forest mean) shows a pronounced te
 
 Mean AGB in GFW-disturbed pixels rises from 59 Mg/ha (2015) to 132 Mg/ha (2021). This likely reflects a shift in disturbance type — early-period loss concentrated in low-stature or edge forests (deforestation, selective thinning); later years include storm damage, fire, or harvest in older, more carbon-dense stands.
 
-Note that 2019 disturbances are concurrent with the RS imagery and therefore are **not** a direct source of temporal mismatch — plots measured in 2019 already align with the imagery. The 2019 density ratio (r = 1.13) is an ecologically interesting finding (disturbance shifted into above-average biomass stands) but has no special status for bias: the real mismatch concern lies with disturbances in 2015–2017 (pre-RS gap) and 2020–2022 (post-RS gap), where FIA measurement dates diverge from the imagery window. The fact that density ratios in those gap years are mostly below 1 (disturbance in below-average biomass stands) is directly reassuring for the reviewer response.
+Note that 2019 disturbances are concurrent with the RS imagery and therefore are **not** a direct source of temporal mismatch — plots measured in 2019 already align with the imagery. The 2019 density ratio (r = 1.13) is an ecologically interesting finding (disturbance shifted into above-average biomass stands) but has no special status for bias: the real mismatch concern lies with disturbances in 2015–2017 (pre-RS gap) and 2020–2022 (post-RS gap), where FIA measurement dates diverge from the imagery window. The fact that density ratios in those gap years are mostly below 1 (disturbance in below-average biomass stands) is directly reassuring.
 
 LandTrendr density ratios are below or near 1.0 throughout (0.51–1.05). The slight exceedance in 2021 (r = 1.05) reflects newly recovered detections in denser stands, which take longer to show spectral recovery and were previously missed by the right-edge bias.
 
@@ -318,82 +226,27 @@ The Near and Far categories represent the actual temporal mismatch window — di
 
 ---
 
-### Interpretation for reviewer response
-
-**1. Discrepancy between GFW and LandTrendr is expected and informative.**
-
-GFW detects any pixel with canopy loss (including agricultural clearing, road cuts, individual tree removal) without requiring a sustained spectral trend. LandTrendr applies segmentation requiring a structural, multi-year NBR decline (threshold −150). The ~1.8× gap (GFW 11.5% vs. LandTrendr 6.2%) reflects GFW's broader sensitivity, not error. The two products now bracket a credible disturbance range, with LandTrendr providing the conservative lower bound.
-
-**2. Annual disturbance rates are modest.**
-
-- GFW: ~1.44%/yr average
-- LandTrendr: ~0.78%/yr average (full 8-year period, right-edge bias mitigated)
-
-These rates are consistent with normal harvesting activity in southeastern US working forests and do not indicate widespread stand-replacement disturbance.
-
-**3. Domain-level AGB impact is negligible relative to RMSE.**
-
-Even the absolute worst-case estimate (GFW, all 8 years, all disturbed pixels → 0 AGB) produces a domain-mean AGB shift of 11.1 Mg/ha — one-third of model RMSE. Restricting to the actual mismatch window (disturbances in the gap years, i.e., all non-concurrent years), the worst-case is 8.06 Mg/ha (GFW) or 3.18 Mg/ha (LandTrendr). Both gap periods produce the same direction of training inconsistency (disturbance captured by FIA but not imagery → low AGB paired with high spectral signal), so their effects compound; even so, the combined worst-case remains well below RMSE.
-
-**4. The gap-year density ratios confirm disturbance is predominantly in below-average biomass stands.**
-
-In the pre-RS gap (2015–2017), GFW density ratios are 0.57–0.75 and LandTrendr ratios are 0.51–0.68 — disturbance is concentrated in below-average biomass stands, limiting the magnitude of training inconsistency. In the post-RS gap (2020–2022), GFW density ratios rise above 1 (1.19–1.27), indicating those disturbances occurred in higher-biomass stands; these produce the same type of inconsistency (low AGB in FIA, high spectral in imagery) as the pre-RS gap, but with a larger per-pixel AGB effect because the affected stands carry more carbon. Despite this, the post-RS worst-case shift (4.96 Mg/ha GFW) remains well below model RMSE, and LandTrendr post-RS ratios remain near 1 (0.96–1.05).
-
-**5. Overall conclusion.**
-
-Both gap periods (pre-RS and post-RS) introduce the same type of training inconsistency — a (low AGB, high spectral) pair — so their effects are directional and compound rather than cancel. However, the **magnitude** of this systematic effect is negligible relative to model RMSE. Three converging lines of evidence support this:
-- Disturbed area is spatially limited (≤11.5% of domain over 8 years, ≤8.25% in gap years only)
-- Disturbance in the pre-RS gap is concentrated in below-average-biomass stands (density ratio 0.51–0.75), limiting per-pixel AGB error
-- Even combining both gap periods, the worst-case domain-mean AGB shift (8.06 Mg/ha GFW, 3.18 Mg/ha LandTrendr) remains well below model RMSE in every stratification
-
----
-
-### Suggested reviewer response text
-
-> To quantify the potential impact of temporal mismatch, we generated Global Forest Watch (GFW; Hansen et al. 2013) and LandTrendr-based (Kennedy et al. 2010) forest disturbance layers for 2015–2022 and evaluated disturbance patterns within the 557,121 ha forest modelling domain (Supplementary Fig. S[X]).
->
-> The mismatch mechanism operates as follows. All FIA plots — regardless of measurement year — are paired with Sentinel-2 imagery from a fixed 2018–2019 acquisition window. Plots measured in 2018–2019 are temporally aligned with the imagery and therefore unaffected. The problematic cases are plots measured outside this window: for plots measured in 2015–2017 (pre-RS gap), any disturbance occurring before or during FIA measurement is recorded in the FIA data but has partially recovered by the time of the 2018–2019 imagery; for plots measured in 2020–2022 (post-RS gap), any disturbance occurring after the imagery but before or during FIA measurement is recorded by FIA but absent from the imagery. In both cases the consequence is the same type of training inconsistency: FIA records a post-disturbance low AGB, while the imagery captures a different (pre-disturbance or recovering) forest state with a higher spectral signal. These (low AGB, high spectral) training pairs introduce a directional effect — the two gap periods compound rather than cancel.
->
-> GFW detected 64,011 ha (11.5%) and LandTrendr detected 34,749 ha (6.2%) of cumulative disturbed area over the full 2015–2022 period. Restricting to the actual mismatch window — the pre-RS gap (2015–2017) and post-RS gap (2020–2022) — the disturbed area falls to 8.25% (GFW) and 4.11% (LandTrendr) of the forest domain. Under the most conservative assumption (all disturbed pixels instantaneously drop to zero AGB), the worst-case shift in domain-mean AGB from these gap-year disturbances is 8.06 Mg/ha (GFW) or 3.18 Mg/ha (LandTrendr) — 24% and 9% of model RMSE (34.17 Mg/ha), respectively. The biomass-weighted disturbance fraction (10.7% GFW, 4.8% LandTrendr) is lower than the area fraction because disturbance in the pre-RS gap preferentially affected below-average-biomass stands (AGB density ratio 0.51–0.75), which limits the per-pixel magnitude of any training error. These results confirm that while temporal mismatch introduces a directional training effect, its magnitude is negligible relative to model RMSE and does not constitute a material source of systematic bias.
-
----
-
 ## Workflow Summary
 
 ```
-Reviewer concern: temporal mismatch FIA (2015-2022) vs RS (2018-2019)
+Temporal mismatch analysis: FIA (2015–2022) vs RS imagery (2018–2019)
          │
-         ├── Spatial response — GEE scripts
+         ├── Spatial analysis — GEE scripts
          │     ├── DisturbanceAnalysisGFW.js             → gfw_forest_loss.tif
          │     └── DisturbanceAnalysisLandtrendr.js       → landtrendr_disturbance_updated.tif
          │           (QA masking + growing-season compositing fix applied 2026-02-21)
          │
-         ├── Spatial response — Python (raster domain analysis)  ← NEW
-         │     └── A_Review_TimeMismatch_DisturbanceAnalysis.py
-         │           ├── FigSX_TimeMismatch_Disturbance.png / .pdf
-         │           └── time_mismatch_disturbance_summary.csv / .xlsx
-         │
-         └── Tabular response — Python (FIA plot-level)
-               ├── A_Review_DisturbanceSummaryFIA.py
-               │     ├── fia_disturbance_summary_table.xlsx
-               │     ├── fia_temporal_group_summary.csv
-               │     └── fia_disturbance_summary.jpg
-               └── A_Review_BiomassChangeFIA.py
-                     ├── biomass_change_by_treatment.xlsx
-                     └── biomass_change_summary.jpg
+         └── Spatial analysis — Python (raster domain analysis)
+               └── A_Review_TimeMismatch_DisturbanceAnalysis.py
+                     ├── FigSX_TimeMismatch_Disturbance.png / .pdf
+                     └── time_mismatch_disturbance_summary.csv / .xlsx
 ```
-
-**Interpretation for reviewer response:**
-- The raster-based analysis (new) quantifies disturbed area and biomass across the full modelling domain: GFW 11.5%, LandTrendr 4.1%, agreed signal 2.3% — all modest rates concentrated in below-average-biomass stands.
-- GFW and LandTrendr layers show forest disturbance does not cluster at levels that would produce systematic bias in the FIA–RS matching.
-- The FIA tabular scripts confirm AGB distributions are stable across all measurement years, and that (where disturbance codes are available) very few plots carry FIA-recorded disturbance flags.
-- Together these three lines of evidence support the claim that temporal mismatch contributes primarily to residual variance rather than systematic bias.
 
 ---
 
 ## Data Confidentiality Note
 
-FIA plot location coordinates (`LAT`, `LON` from the `fia_plot` sheet) are protected by USFS confidentiality agreements and are **not** included in this repository. The Python script uses only tabular biomass and disturbance attributes. The GEE spatial analysis operates over the full study region without requiring plot-level coordinates.
+FIA plot location coordinates (`LAT`, `LON` from the `fia_plot` sheet) are protected by USFS confidentiality agreements and are **not** included in this repository. The GEE spatial analysis operates over the full study region without requiring plot-level coordinates.
 
 ---
 
