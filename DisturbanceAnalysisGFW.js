@@ -8,10 +8,6 @@ Copy and paste this into the Google Earth Engine Code Editor
 // CONFIGURATION - MODIFY THESE PARAMETERS
 // =============================================================================
 
-// Study area (example: bounding box)
-// Replace with your area of interest or draw a geometry in GEE Code Editor
-var study_area = ee.Geometry.Rectangle([-125, 24, -66, 50]);
-
 // Filter window for disturbance detection (FIA measurement period)
 var filter_start = 2015;
 var filter_end = 2022;
@@ -160,3 +156,4 @@ Export.image.toAsset({
 
 print('\nAnalysis complete! Check the Layers panel and Console for results.');
 print('Export task submitted: gfw_forest_loss (band: loss_year)');
+
